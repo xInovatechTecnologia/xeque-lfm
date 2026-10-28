@@ -11,14 +11,17 @@ Modificações em relação ao modelo original (que sozinho só faz 1 passada):
   4. Tratamento exato de fim de jogo: mate, afogamento, material insuficiente,
      repetição e regra dos 50 lances.
   5. Tabela de transposição + cache de avaliações do modelo.
+  6. Ponderação: pensa durante o tempo do adversário nas respostas mais
+     prováveis dele; o cache acelera a busca quando o lance real chega.
 """
 from __future__ import annotations
 
+import threading
 import time
 
 import chess
 
-LARGURAS = [12, 6, 5, 4, 3]
+LARGURAS = [10, 5, 4, 3, 3]
 MATE = 0.0          # pontuação de quem levou mate (lado que joga)
 EMPATE = 0.5
 
@@ -33,6 +36,8 @@ class Busca:
         self.larguras = larguras or LARGURAS
         self.log = log or (lambda *a: None)
         self.tt: dict = {}
+        self.parar = threading.Event()
+        self.prazo = 0.0
 
     # -------------------------------------------------------------- terminal
     @staticmethod
@@ -64,7 +69,7 @@ class Busca:
 
     # ---------------------------------------------------------------- negamax
     def _negamax(self, board, prof, alfa, beta, ply):
-        if time.monotonic() > self.prazo:
+        if time.monotonic() > self.prazo or self.parar.is_set():
             raise TempoEsgotado
         t = self._terminal(board, ply)
         if t is not None:
@@ -99,7 +104,10 @@ class Busca:
         return melhor, melhor_lance
 
     # ------------------------------------------------------------------ raiz
-    def melhor_lance(self, board: chess.Board, tempo_s: float, prof_max: int = 6):
+    def melhor_lance(self, board: chess.Board, tempo_s: float, prof_max: int | None = None):
+        # Profundidade 4 custa ~4x a 3; só tenta quando há orçamento folgado.
+        if prof_max is None:
+            prof_max = 4 if tempo_s >= 40 else 3
         legais = list(board.legal_moves)
         if len(legais) == 1:
             return legais[0], {"motivo": "único lance", "prof": 0}
@@ -130,3 +138,47 @@ class Busca:
         info["nos"] = self.m.nos_avaliados - nos0
         info["tempo"] = time.monotonic() - inicio
         return lance, info
+
+
+class Ponderador:
+    """Busca em segundo plano enquanto o adversário pensa (preenche o cache do modelo)."""
+
+    def __init__(self, modelo, larguras=None):
+        self.busca = Busca(modelo, larguras)
+        self.thread = None
+
+    def iniciar(self, board: chess.Board, n_respostas: int = 3):
+        self.parar()
+        self.busca.parar.clear()
+        b = board.copy()
+        self.thread = threading.Thread(target=self._rodar, args=(b, n_respostas), daemon=True)
+        self.thread.start()
+
+    def _rodar(self, board, n_respostas):
+        try:
+            if board.is_game_over():
+                return
+            _, pol = self.busca.m.analisar(board, com_politica=True)
+            respostas = sorted(pol, key=pol.get, reverse=True)[:n_respostas]
+            for prof in range(1, 5):            # aprofunda todas as respostas juntas
+                for r in respostas:
+                    if self.busca.parar.is_set():
+                        return
+                    board.push(r)
+                    try:
+                        if not board.is_game_over():
+                            self.busca.prazo = float("inf")
+                            self.busca.tt.clear()
+                            self.busca._negamax(board, prof, -0.01, 1.01, 0)
+                    except TempoEsgotado:
+                        return
+                    finally:
+                        board.pop()
+        except Exception:
+            pass
+
+    def parar(self):
+        self.busca.parar.set()
+        if self.thread is not None:
+            self.thread.join(timeout=5)
+            self.thread = None

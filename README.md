@@ -43,6 +43,9 @@ Opções: `--minutos 25 --overhead 10 --threads 10 --notacao en`
 
 - ~160 ms por posição avaliada (≈6 nós/s): o custo é de cálculo (80 tokens × 230M parâmetros), não de memória
 - Testes táticos (`benchmark.py`): 5/5
+- Perda média por lance (ACPL, Stockfish 17.1 prof. 16, 14 posições): **modelo puro 122 → Xeque-LFM 44**
+- Contra Stockfish limitado a 1500 (0,3 s/lance): modelo puro **0/4**; Xeque-LFM com 10 s/lance **1/2**
+- Na partida real (25 min): profundidade 3 em ~15–25 s; com ponderação, parte dos lances sai do cache em segundos
 - Dica: no dia, notebook **na tomada** e plano de energia **Alto desempenho**
 
 ## Formato do prompt (descoberto e documentado pela equipe)
