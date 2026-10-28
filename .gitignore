@@ -1,0 +1,9 @@
+__pycache__/
+partidas/estado.json*
+partidas/*.pgn
+*.tmp
+modelo/LFM2.5-230M-Chess.Q8_0.gguf
+
+ferramentas/sf/
+ferramentas/sf.zip
+partidas/match_*.pgn

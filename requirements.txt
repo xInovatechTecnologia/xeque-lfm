@@ -1,0 +1,4 @@
+chess>=1.10
+numpy>=1.26
+gguf>=0.10
+llama-cpp-python>=0.3.16
